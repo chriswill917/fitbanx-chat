@@ -2,7 +2,7 @@ import {memo, useEffect, useState} from "react";
 import CloseRoundedIcon from '@material-ui/icons/CloseRounded';
 import "./MediaPreview.css";
 
-export default memo(function MediaPreview({imageSRC, mediaPreview, close}) {
+export default memo(function MediaPreview({src, mediaPreview, close, docType}) {
 	const [height, setHeight] = useState("");
 
 	useEffect(() => {
@@ -18,7 +18,12 @@ export default memo(function MediaPreview({imageSRC, mediaPreview, close}) {
 			}}
 		>
 			<CloseRoundedIcon onClick={close} />
-			<img key={imageSRC} src={imageSRC} alt="" />
+			{ docType === "image" && 
+				<img key={src} src={src} alt="" />
+			}
+			{ docType === "video" && 
+				<video width="320" height="240" controls key={src} src={src} alt="" />
+			}
 		</div>
 	)
 })

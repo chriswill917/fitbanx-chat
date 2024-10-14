@@ -1,49 +1,63 @@
 import { useRef, useState } from "react";
+import db, { getFieldPath } from './firebase';
+
+
 
 export default function useFetchData(limitNumber, get,initCount, clientIds, snapHandler, name) {
 	const limit = useRef(0);
 	const dataUnsub = useRef();
 	const [data, setData] = useState(null);
 	const snapCount = useRef(0);
-  
+
     if(clientIds.length === 0) {
         return [data, function fetchData(setScrollFetch) {
             setData([]);
-            setScrollFetch(false);
         }];
     }
 
-	return [data, function fetchData(setScrollFetch) {
-		if (limit.current || limit.current === 0) {
-            if (limit.current === "limit attended") {
-                setScrollFetch(false);
-                limit.current = null;
-            } else {
-                setScrollFetch(true);
-                limit.current = limit.current + limitNumber;
-            };
+	return [data, function fetchData(setScrollFetch, userList, isSearch, clientIds, initCount, offset) {
+        if (limit.current || limit.current === 0) {
             if (dataUnsub.current) {
                 dataUnsub.current();
             };
             if (initCount) {
-            	snapCount.current = 0;
+                offset = 0;
             };
             let timeout = null;
-            get.where("uid", "in", clientIds)
-            const getData = limit.current ? get.limit(limit.current) : get;
+            let clients = clientIds.map(c => c.fb_user_id);
+            let pageClients = clients.slice(offset).slice(0, 10);
+	        if (pageClients.length === 0) {
+                return;
+            }
+            pageClients = pageClients.filter(p => typeof p !== 'undefined')
+            let getNew = db.collection("users").
+            where(getFieldPath.documentId(), "in", pageClients)
+            const getData = getNew;
             dataUnsub.current = getData.onSnapshot(snapshot => {
-                snapCount.current++;
                 const s = () => {
                     let arr = snapHandler(snapshot);
                     arr = arr.filter((a) => {
-                        return clientIds.includes(a.userID);
+                        const findIndex = clientIds.findIndex((clientId) => clientId.fb_user_id === a.userID);
+                        return findIndex > -1;
                     })
-                    setData(arr);
-                    setScrollFetch(false);
-                    if ((name === "users" && arr.length < limit.current - 1) || (name !== "users" && arr.length < limit.current)) {
-                        limit.current = "limit attended";
-                        fetchData(setScrollFetch)
-                    };
+                    arr = arr.map((a) => {
+                        const findIndex = clientIds.findIndex((clientId) => clientId.fb_user_id === a.userID);
+                        return {
+                            ...a,
+                            name: clientIds[findIndex]['name']
+                        }
+                    });
+                  
+                    let userArr;
+                    if(!userList) {
+                        userArr = [];
+                    } else {
+                        userArr = userList;
+                    }
+                    if (arr.length > 0) {
+                        userArr = arr.sort((a,b)=> (a.name > b.name ? 1 : -1));
+                        setData(userArr);
+                    }
                 };
                 if (snapshot.docs?.length > 0) {
                     if (snapCount.current >= 2) {
@@ -57,7 +71,6 @@ export default function useFetchData(limitNumber, get,initCount, clientIds, snap
                     };
                 } else if (snapshot.docs?.length === 0) {
                     setData([]);
-                    setScrollFetch(false);
                 };
             });
         };

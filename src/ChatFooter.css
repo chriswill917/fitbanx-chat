@@ -23,7 +23,7 @@
     width: 46px;
     height: 46px;
     border-radius: 50%;
-    background: #ea5e01;
+    background: #ff0000;
     box-shadow: 0px 0px 2px 0px #0000005e;
     border: none;
     transition: transform 150ms;
@@ -47,8 +47,8 @@
 }
 
 .send__btn svg:nth-child(1) {
-    opacity: 0;
-    transform: translateX(-48%) translateY(-50%);
+    opacity: 1;
+    /* transform: translateX(-48%) translateY(-50%); */
 }
 
 .chat__footer > .MuiSvgIcon-root {
@@ -85,7 +85,7 @@
     opacity: 1 !important;
     transform: scale(1) translateX(-50%) translateY(-50%) !important;
     transition: opacity 200ms, transform 200ms !important;
-    transition-delay: 200ms !important; 
+    transition-delay: 200ms !important;
 }
 
 .send__animate-enter-done, .send__animate2-enter-done {
@@ -120,7 +120,7 @@
 }
 
 .send__animate2-exit-active {
-    transform: scale(0.8) translateX(-57%) translateY(-58%) !important;   
+    transform: scale(0.8) translateX(-57%) translateY(-58%) !important;
 }
 
 .record {

@@ -1,31 +1,109 @@
-import { useState, useEffect, useLayoutEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, memo, useImperativeHandle, forwardRef  } from 'react';
 import { Avatar, IconButton } from '@material-ui/core';
 import { TransitionGroup, Transition, CSSTransition } from "react-transition-group";
-import { AddPhotoAlternate, MoreVert, DoneAllRounded, ArrowDownward, ArrowBack } from '@material-ui/icons';
+import { AddPhotoAlternate, MoreVert, DoneAllRounded, ArrowDownward, ArrowBack, CameraAlt, Collections, Close  } from '@material-ui/icons';
 import { useParams, useRouteMatch, useLocation, Link, Route, useHistory } from 'react-router-dom';
-import db, { createTimestamp, fieldIncrement, storage, audioStorage } from "./firebase";
+import db, { createTimestamp, fieldIncrement, storage, audioStorage, videoStorage } from "./firebase";
 import { useStateValue } from './StateProvider';
 import Menu from '@material-ui/core/Menu';
 import MenuItem from '@material-ui/core/MenuItem';
+import Dialog from '@material-ui/core/Dialog'
+import Slide  from '@material-ui/core/Slide'
+import Box from '@material-ui/core/Box';
+import { fade, makeStyles } from '@material-ui/core/styles';
+import Button from '@material-ui/core/Button';
+import AppBar from '@material-ui/core/AppBar';
+import Toolbar from '@material-ui/core/Toolbar';
+import Typography from '@material-ui/core/Typography';
+import moment from 'moment'
+import { fileTypeFromBlob } from 'file-type';
 import CircularProgress from '@material-ui/core/CircularProgress';
 import MediaPreview from "./MediaPreview";
 import ImagePreview from "./ImagePreview";
+import VideoPreview from "./VideoPreview";
 import ChatFooter from "./ChatFooter";
 import Compressor from 'compressorjs';
 import anime from 'animejs/lib/anime.es.js';
 import { v4 as uuidv4 } from 'uuid';
+import { stringAvatar } from "./utils"
 import AudioPlayer from "./AudioPlayer.js"
 import './Chat.css';
 import audio2 from "./message_sent.mp3";
 import audio1 from "./message_received.mp3";
+import Webcam from "react-webcam";
+import Linkify from 'linkify-react';
 
-function Chat({ animState, unreadMessages, b }) {
+const isBase64 = require('is-base64');
+
+const MAX_VIDEO_SIZE = 16777216;    // 16 MB
+
+const VIDEO_UPLOAD_LIMIT_EXCEEDS = 'Video is too large. Please upload a video less than 16 MB.';
+
+
+const DialogTransition = forwardRef(function Transition(props, ref) {
+    return <Slide direction="up" ref={ref} {...props} />;
+});
+
+const WebcamCapture = forwardRef((props, ref) => {
+
+    const webcamRef = React.useRef(null);
+    const [imgSrc, setImgSrc] = React.useState(null);
+
+
+    useImperativeHandle(ref, () => ({
+        callCapture() {
+            const imageSrc = webcamRef.current.getScreenshot({width: 300, height: 300});
+            props.getScreenShot(imageSrc);
+        }
+    }));
+
+    return (
+      <>
+        <Webcam
+          audio={false}
+          ref={webcamRef}
+          width={360}
+          height={360}
+          screenshotFormat="image/jpeg"
+        />
+      </>
+    );
+});
+
+const useStyles = makeStyles((theme) => ({
+    root: {
+      flexGrow: 1,
+    },
+    menuButton: {
+      marginRight: theme.spacing(2),
+    },
+    title: {
+      flexGrow: 1,
+      display: 'none',
+      [
+        theme.breakpoints.up('sm')]: {
+          display: 'block',
+      },
+    }
+  }));
+
+const avtarStyles = makeStyles((theme) => ({
+    avtarCls: {
+      color: props => {
+          return theme.palette.getContrastText(props.color);
+      },
+      backgroundColor: props => props.backgroundColor
+    }
+}));
+
+function Chat({ animState, isDesktop, unreadMessages, b, photos }) {
     const [input, setInput] = useState('');
     const { roomID } = useParams();
     const location = useLocation()
     const match = useRouteMatch();
     const [{ dispatchMessages, user, roomsData, page }, dispatch, actionTypes] = useStateValue();
-    const [imagePreview, setImagePreview] = useState({})
+    const [imagePreviewSRC, setImagePreviewSRC] = useState({})
+    const [videoPreviewSRC, setVideoPreviewSRC] = useState('')
     const [messages, setMessages] = useState([]);
     const [openMenu, setOpenMenu] = useState(null);
     const [deleting, setDeleting] = useState(false);
@@ -35,7 +113,11 @@ function Chat({ animState, unreadMessages, b }) {
     const [seen, setSeen] = useState(false);
     const [typing, setTyping] = useState(false);
     const [src, setSRC] = useState('');
+    const [videoSrc, setVideoSRC] = useState('');
     const [image, setImage] = useState(null);
+    const [isOpenVideoPreview, setOpenVideoPreview] = useState(false);
+    const [isOpenImagePreview, setOpenImagePreview] = useState(false);
+    const [video, setVideo] = React.useState(null);
     const [writeState, setWriteState] = useState(0);
     const [ratio, setRatio] = useState(false);
     const [scrollArrow, setScrollArrow] = useState(false);
@@ -60,6 +142,30 @@ function Chat({ animState, unreadMessages, b }) {
     const messageReceivedAudio = new Audio(audio1);
     const mediaSnap = useRef([]);
     const mediaChecked = useRef(false);
+    const classes = useStyles({});
+
+    const [anchorEl, setAnchorEl] = useState(null);
+    const open = Boolean(anchorEl);
+
+    const [openCameraDialog, setOpenCameraDialog] = useState(false);
+
+    const handleCameraCloseDialog = () => {
+        setOpenCameraDialog(false);
+    };
+
+    const handleClick = (event) => {
+        setAnchorEl(event.currentTarget);
+    };
+    const handleClose = () => {
+        setAnchorEl(null);
+    };
+
+    let photoURL = state?.photoURL;
+    const findIndex = photos.findIndex((photo) => photo.userID === state?.userID);
+    if (findIndex > -1) {
+        photoURL = photos[findIndex]['photoURL'];
+    }
+
 
     //console.log(match)
     const change = (e) => {
@@ -75,14 +181,15 @@ function Chat({ animState, unreadMessages, b }) {
                     }, { merge: true });
                 }, 1000));
             });
-        }; 
+        };
     };
 
     const clickImagePreview = (event, src, ratio) => {
+        setOpenImagePreview(true);
         const target = event.target;
         const node = target.parentNode.parentNode;
         const obj = node.getBoundingClientRect();
-        setImagePreview({
+        setImagePreviewSRC({
     		ratio: ratio,
             top: page.transform === "scale(1)" ? obj.top :  obj.top / (window.innerHeight / page.height),
             left: page.transform === "scale(1)" ? obj.left : obj.left / (window.innerWidth / page.width),
@@ -94,24 +201,65 @@ function Chat({ animState, unreadMessages, b }) {
         })
     }
 
+    const clickVideoPreview = (event, src, ratio) => {
+        setOpenVideoPreview(true);
+        setVideoPreviewSRC(src)
+    }
+
+
+
     const close = () => {
         mediaPreview.current.style.animation = "opacity-out 300ms ease forwards";
         setTimeout(() => {
             setImage(null);
             setSRC("");
+            setVideo(null);
+            setVideoSRC("");
         }, 310);
     };
 
     const handleFile = event => {
         if (window.navigator.onLine) {
             if (event.target.files[0]) {
+                const file = event.target.files[0];
+                // if(window.ReactNativeWebView.postMessage) {
+
+                // }
+                const patternImage = /image-*/;
+                const patternVideo = /video-*/;
+                let isImage = false;
+                let isVideo = false;
+                if (file.type.match(patternImage)) {
+                  isImage = true;
+                }
+                if (file.type.match(patternVideo)) {
+                    isVideo = true;
+                }
+                if(!isImage && !isVideo) {
+                    alert("You can upload images or videos");
+                    return;
+                }
+                if(isVideo && file.size > MAX_VIDEO_SIZE){
+                    // alert(VIDEO_UPLOAD_LIMIT_EXCEEDS);
+                    alert(`Video is too large ${(file.size/1e6).toFixed(2)}MB. Please upload a video less than 16 MB.`);
+                    return;
+                }
                 var reader = new FileReader();
                 reader.onload = function () {
-                    setSRC(reader.result)
+                    if(isImage) {
+                        setSRC(reader.result)
+                    } else {
+                        setVideoSRC(reader.result)
+                    }
+                    setAnchorEl(null);
                 }
                 reader.readAsDataURL(event.target.files[0]);
-                setImage(event.target.files[0])
-            };
+                if(isImage) {
+                    setImage(event.target.files[0])
+                } else {
+                    setVideo(event.target.files[0])
+                }
+            }
         } else {
             alert("No access to internet !!!");
         };
@@ -149,7 +297,7 @@ function Chat({ animState, unreadMessages, b }) {
                     complete: function() {
                         setSendAnim(false);
                     }
-                });   
+                });
             };
         } else if (messages[messages.length - 1].uid === user.uid) {
             if (chatBodyContainer.current.scrollTop !== chatBodyContainer.current.scrollHeight) {
@@ -187,10 +335,12 @@ function Chat({ animState, unreadMessages, b }) {
         if (focus) {
             document.querySelector('.chat__footer > form > input').focus();
         }
-        if (input !== "" || (input === "" && image)) {
+        let isNoticationSend = false;
+        if (input !== "" || (input === "" && (image || video))) {
             const inputText = input;
             const imageToUpload = image
-            if (imageToUpload) {
+            const videoToUpload = video
+            if (imageToUpload || video) {
                 close();
             }
             setInput("");
@@ -198,30 +348,51 @@ function Chat({ animState, unreadMessages, b }) {
                 lastMessage: imageToUpload ? {
                     message: inputText,
                     audio: false,
-                } : inputText,
+                    video: false,
+                    image: true,
+                    timestamp: createTimestamp(),
+                } : videoToUpload ? {
+                    message: inputText,
+                    audio: false,
+                    video: true,
+                    image: false,
+                    timestamp: createTimestamp(),
+                } : {
+                    message: inputText,
+                    audio: false,
+                    video: false,
+                    image: false,
+                    timestamp: createTimestamp(),
+                },
                 seen: false,
             }
-            db.collection("rooms").doc(roomID).set(roomInfo, { merge: true });
-            var split, imageName;
-            if (imageToUpload) {
-                split = imageToUpload.name.split(".");
-                imageName = split[0] + uuidv4() + "." + split[1];
+           db.collection("rooms").doc(roomID).set(roomInfo, { merge: true });
+            var split, docName;
+            let messageToSend =  {
+                name: user.displayName,
+                message: input,
+                uid: user.uid,
+                timestamp: createTimestamp(),
+                time: new Date().toUTCString(),
             }
-            const messageToSend = imageToUpload ? {
-                name: user.displayName,
-                message: input,
-                uid: user.uid,
-                timestamp: createTimestamp(),
-                time: new Date().toUTCString(),
-                imageUrl: "uploading",
-                imageName: imageName,
-                ratio: ratio
-            } : {
-                name: user.displayName,
-                message: input,
-                uid: user.uid,
-                timestamp: createTimestamp(),
-                time: new Date().toUTCString(),
+            if(imageToUpload) {
+                split = imageToUpload.name.split(".");
+                docName = split[0] + uuidv4() + "." + split[1];
+                messageToSend = {
+                    ...messageToSend,
+                    imageUrl: "uploading",
+                    imageName: docName,
+                    ratio: ratio
+                }
+            }
+            if(videoToUpload) {
+                split = videoToUpload.name.split(".");
+                docName = split[0] + uuidv4() + "." + split[1];
+                messageToSend = {
+                    ...messageToSend,
+                    videoUrl: "uploading",
+                    videoName: docName,
+                }
             }
             if (state.userID) {
                 db.collection("users").doc(state.userID).collection("chats").doc(roomID).set({
@@ -237,15 +408,6 @@ function Chat({ animState, unreadMessages, b }) {
                     name: state.name,
                     userID: state.userID
                 }, { merge: true });
-                if (token !== "" && !imageToUpload) {
-                    db.collection("notifications").add({
-                        userID: user.uid,
-                        title: user.displayName,
-                        body: inputText,
-                        photoURL: user.photoURL,
-                        token: token,
-                    });
-                };
             } else {
                 db.collection("users").doc(user.uid).collection("chats").doc(roomID).set({
                     timestamp: createTimestamp(),
@@ -255,24 +417,72 @@ function Chat({ animState, unreadMessages, b }) {
             };
             const doc = await db.collection("rooms").doc(roomID).collection("messages").add(messageToSend);
             if (imageToUpload) {
-                new Compressor(imageToUpload, { quality: 0.8, maxWidth: 1920, async success(result) {
+                if(imageToUpload.isCaptureImage) {
                     setSRC("");
                     setImage(null);
-                    await storage.child(imageName).put(result);
-                    const url = await storage.child(imageName).getDownloadURL();
+                    await storage.child(docName).putString(imageToUpload.data.split(',')[1], "base64", {contentType: "image/jpg"});
+                    const url = await storage.child(docName).getDownloadURL();
                     db.collection("rooms").doc(roomID).collection("messages").doc(doc.id).update({
                         imageUrl: url
                     });
-                    if (state.userID && token !== "") db.collection("notifications").add({
+                    if (state.userID) db.collection("notifications").add({
                         userID: user.uid,
                         title: user.displayName,
                         body: inputText,
                         photoURL: user.photoURL,
-                        token: token,
+                        toUserId: state.userID,
                         image: url
                     });
-                }});
+                    isNoticationSend = true;
+                } else {
+                    new Compressor(imageToUpload, { quality: 0.8, maxWidth: 1920, async success(result) {
+                        setSRC("");
+                        setImage(null);
+                        await storage.child(docName).put(result);
+                        const url = await storage.child(docName).getDownloadURL();
+                        db.collection("rooms").doc(roomID).collection("messages").doc(doc.id).update({
+                            imageUrl: url
+                        });
+                        if (state.userID) db.collection("notifications").add({
+                            userID: user.uid,
+                            title: user.displayName,
+                            body: inputText,
+                            photoURL: user.photoURL,
+                            toUserId: state.userID,
+                            image: url
+                        });
+                        isNoticationSend = true;
+                    }});
+                }
             };
+            if(videoToUpload) {
+                const data = videoSrc;
+                setVideoSRC("");
+                setVideo(null);
+                await videoStorage.child(docName).putString(data.split(',')[1], "base64", {contentType: "video/mp4"});
+                const url = await videoStorage.child(docName).getDownloadURL();
+                db.collection("rooms").doc(roomID).collection("messages").doc(doc.id).update({
+                    videoUrl: url
+                });
+                if (state.userID) db.collection("notifications").add({
+                    userID: user.uid,
+                    title: user.displayName,
+                    body: inputText,
+                    photoURL: user.photoURL,
+                    toUserId: state.userID,
+                    video: url
+                });
+                isNoticationSend = true;
+            }
+            if(!isNoticationSend && state.userID) {
+                db.collection("notifications").add({
+                    userID: user.uid,
+                    title: user.displayName,
+                    body: inputText,
+                    photoURL: user.photoURL,
+                    toUserId: state.userID,
+                });
+            }
         };
     };
 
@@ -321,16 +531,59 @@ function Chat({ animState, unreadMessages, b }) {
         };
     };
 
+    const isToday = (momentDate) => {
+        const today = moment();
+        return momentDate.isSame(today, 'd');
+    }
+
+    const isPreviousDay = (momentDate, day) => {
+        const yesterday = moment().subtract(day, 'day');
+        return momentDate.isSame(yesterday, 'd');
+    }
+
+    const getDate = (date) => {
+        const local = moment(date?.toDate()).local();
+        let timestamp = local;
+        let timeGroup;
+        if(isToday(local)) {
+            timestamp = `${local.format('hh:mm A')}`
+            timeGroup = `Today`;
+        } else if(isPreviousDay(local, 1)) {
+            timestamp = `${local.format('hh:mm A')}`
+            timeGroup = `Yesterday`;
+        } else {
+            let isFindWeekDate = false;
+            for(let i = 1; i <= 7; i++) {
+                if(isPreviousDay(local, i)) {
+                    timestamp = `${local.format('hh:mm A')}`;
+                    timeGroup = local.format('ddd');
+                    isFindWeekDate = true;
+                    break;
+                }
+            }
+            if (!isFindWeekDate) {
+                timestamp = local.format('hh:mm A');
+                timeGroup = local.format('YYYY/MM/DD');
+            }
+        }
+        return {
+            timestamp,
+            timesGroup: timeGroup
+        };
+    }
+
     function fetchMessages(update) {
         const ref = db.collection("rooms").doc(roomID).collection("messages").orderBy("timestamp", "desc");
         if (update) {
             b.current[roomID] = ref.limit(5).onSnapshot(snapshot => {
                 const newMessages = snapshot.docs.map(doc => {
                     const data = doc.data();
-                    const time = data.time ? data.time : new Date(data.timestamp?.toDate()).toUTCString()
+                    const local = moment(data.timestamp?.toDate()).local();
+                    let timesObj = getDate(local);
                     return {
                         ...data,
-                        timestamp: time,
+                        timestamp: timesObj.timestamp,
+                        timesGroup: timesObj.timesGroup,
                         id: doc.id,
                     }
                 });
@@ -348,9 +601,12 @@ function Chat({ animState, unreadMessages, b }) {
                 docs.forEach(doc => {
                     const data = doc.data();
                     const time = data.time ? data.time : new Date(data.timestamp?.toDate()).toUTCString()
+                    const local = moment(data.timestamp?.toDate()).local();
+                    let timesObj = getDate(local);
                     newMessages.push({
                         ...data,
-                        timestamp: time,
+                        timestamp: timesObj.timestamp,
+                        timesGroup: timesObj.timesGroup,
                         id: doc.id,
                     });
                 });
@@ -379,9 +635,11 @@ function Chat({ animState, unreadMessages, b }) {
     };
 
     useEffect(() => {
-        if (messages.length > 0 && !deleting) {
+        if (messages.length > 0 && !deleting && isDesktop) {
             if (messages[messages.length - 1].id !== prevMessages.current[prevMessages.current?.length - 1]?.id && dispatchMessages[roomID]?.audio) {
                 if (messages[messages.length - 1].uid !== user.uid && !paginating2.current && (messages[messages.length - 1].imageUrl === "uploading" || !messages[messages.length - 1].imageUrl)) {
+                    messageReceivedAudio.play();
+                } else if (messages[messages.length - 1].uid !== user.uid && !paginating2.current && (messages[messages.length - 1].videoUrl === "uploading" || !messages[messages.length - 1].videoUrl)) {
                     messageReceivedAudio.play();
                 } else if (messages[messages.length - 1].uid === user.uid && !paginating2.current && (messages[messages.length - 1].imageUrl === "uploading" || !messages[messages.length - 1].imageUrl) && (messages[messages.length - 1].audioUrl === "uploading" || !messages[messages.length - 1].audioUrl)) {
                     messageSentAudio.play();
@@ -397,7 +655,7 @@ function Chat({ animState, unreadMessages, b }) {
         };
         const clean = chatBodyContainer.current;
         return () => {
-            clean.removeEventListener("scroll", paginate);  
+            clean.removeEventListener("scroll", paginate);
         };
     }, [firstRender, limitReached]);
 
@@ -406,7 +664,7 @@ function Chat({ animState, unreadMessages, b }) {
         if (limitReached !== dispatchMessages[roomID]?.limitReached) {
             //console.log("setting limit reached: ", Boolean(dispatchMessages[roomID]?.limitReached));
             setLimitReached(Boolean(dispatchMessages[roomID]?.limitReached));
-        } 
+        }
     }, [dispatchMessages[roomID]], limitReached);
 
     useLayoutEffect(() => {
@@ -433,7 +691,7 @@ function Chat({ animState, unreadMessages, b }) {
                     setTimeout(() => {
                         setFirstRender(true);
                     }, 200);
-                }, 50); 
+                }, 50);
             } else {
                 //console.log("messages: ", messages);
                 //console.log("previous messages: ", prevMessages.current);
@@ -449,24 +707,26 @@ function Chat({ animState, unreadMessages, b }) {
         return db.collection("rooms").doc(roomID).collection("messages").doc(docID).onSnapshot(doc => {
             //console.log("image snap set");
             //console.log("image data: ", doc.data());
-            const {imageUrl} = doc.data();
-            if (imageUrl !== "uploading") {
-                //console.log("dispatching the image");
-                dispatch({
-                    type: "update_media",
-                    roomID: roomID,
-                    id: docID,
-                    data: {imageUrl}
-                });
-                //console.log("unsubscribing from image snap: ", docID);
-                mediaSnap.current = mediaSnap.current.filter(cur => {
-                    if (cur.id !== docID) {
-                        return true;
-                    }
-                    cur.snap();
-                    return false;
-                });
-            };
+            if(doc.data()) {
+                const { imageUrl } = doc.data();
+                if (imageUrl !== "uploading") {
+                    //console.log("dispatching the image");
+                    dispatch({
+                        type: "update_media",
+                        roomID: roomID,
+                        id: docID,
+                        data: {imageUrl}
+                    });
+                    //console.log("unsubscribing from image snap: ", docID);
+                    mediaSnap.current = mediaSnap.current.filter(cur => {
+                        if (cur.id !== docID) {
+                            return true;
+                        }
+                        cur.snap();
+                        return false;
+                    });
+                };
+            }
         });
     };
 
@@ -475,28 +735,70 @@ function Chat({ animState, unreadMessages, b }) {
         const s = db.collection("rooms").doc(roomID).collection("messages").doc(docID).onSnapshot(doc => {
             //console.log("audio snap set");
             //console.log("audio data: ", doc.data());
-            const {audioUrl, audioPlayed} = doc.data();
-            if (audioUrl !== "uploading" || audioPlayed === true) {
-                //console.log("dispatching audio");
-                dispatch({
-                    type: "update_media",
-                    roomID: roomID,
-                    id: docID,
-                    data: {
-                        audioUrl,
-                        audioPlayed
-                    }
-                });
-            };
-            if (audioUrl !== "uploading" && audioPlayed === true) {
-                //console.log("unsubscribing from audio snap: ", docID);
-                mediaSnap.current = mediaSnap.current.filter(cur => {
-                    if (cur.id !== docID) {
-                        return true;
-                    };
-                    cur.snap();
-                    return false;
-                });
+            if(doc.data()) {
+                const {audioUrl, audioPlayed} = doc.data();
+                if (audioUrl !== "uploading" || audioPlayed === true) {
+                    //console.log("dispatching audio");
+                    dispatch({
+                        type: "update_media",
+                        roomID: roomID,
+                        id: docID,
+                        data: {
+                            audioUrl,
+                            audioPlayed
+                        }
+                    });
+                };
+                if (audioUrl !== "uploading" && audioPlayed === true) {
+                    //console.log("unsubscribing from audio snap: ", docID);
+                    mediaSnap.current = mediaSnap.current.filter(cur => {
+                        if (cur.id !== docID) {
+                            return true;
+                        };
+                        cur.snap();
+                        return false;
+                    });
+                }
+            }
+        });
+        return s;
+    };
+
+    function listenToVideo(docID) {
+        //console.log("listen to video function")
+        const s = db.collection("rooms").doc(roomID).collection("messages").doc(docID).onSnapshot(doc => {
+            //console.log("video snap set");
+            //console.log("video data: ", doc.data());
+
+            if(doc.data()) {
+                const {videoUrl, videoPlayed, uid} = doc.data();
+
+                if(uid !== user.uid && videoUrl === 'uploading') {
+                    return;
+                }
+
+                if (videoUrl !== "uploading" || videoPlayed === true) {
+                    //console.log("dispatching video");
+                    dispatch({
+                        type: "update_media",
+                        roomID: roomID,
+                        id: docID,
+                        data: {
+                            videoUrl,
+                            videoPlayed
+                        }
+                    });
+                };
+                if (videoUrl !== "uploading" && videoPlayed === true) {
+                    //console.log("unsubscribing from audio snap: ", docID);
+                    mediaSnap.current = mediaSnap.current.filter(cur => {
+                        if (cur.id !== docID) {
+                            return true;
+                        };
+                        cur.snap();
+                        return false;
+                    });
+                }
             }
         });
         return s;
@@ -510,18 +812,24 @@ function Chat({ animState, unreadMessages, b }) {
 
     useEffect(() => {
         if (messages.length > 0 && firstRender && !mediaChecked.current) {
-            //console.log("checking media");
             messages.forEach(cur => {
                 if (cur.imageUrl === "uploading") {
-                    //console.log("listening to an image");
+                    console.log("listening to an image");
                     const x = listenToImg(cur.id);
                     mediaSnap.current.push({
                         snap: x,
                         id: cur.id,
                     });
                 } else if (cur.audioUrl === "uploading" || cur.audioPlayed === false) {
-                    //console.log("listening to audio");
+                    console.log("listening to audio");
                     const x = listenToAudio(cur.id);
+                    mediaSnap.current.push({
+                        snap: x,
+                        id: cur.id,
+                    });
+                } else if (cur.videoUrl === "uploading" || cur.videoPlayed === false) {
+                    console.log("listening to video");
+                    const x = listenToVideo(cur.id);
                     mediaSnap.current.push({
                         snap: x,
                         id: cur.id,
@@ -539,20 +847,27 @@ function Chat({ animState, unreadMessages, b }) {
             }
             for (var i = init; i < stop; i++) {
                 if (messages[i].imageUrl === "uploading") {
-                    //console.log("listening to an image");
+                    console.log("listening to an image 1");
                     const x = listenToImg(messages[i].id);
                     mediaSnap.current.push({
                         snap: x,
                         id: messages[i].id,
                     });
                 } else if (messages[i].audioUrl === "uploading" || messages[i].audioPlayed === false) {
-                    //console.log("listening to audio");
+                    console.log("listening to audio 1");
                     const x = listenToAudio(messages[i].id);
                     mediaSnap.current.push({
                         snap: x,
                         id: messages[i].id,
                     });
-                }; 
+                } else if (messages[i].videoUrl === "uploading" || messages[i].videoPlayed === false) {
+                    console.log("listening to video 1");
+                    const x = listenToVideo(messages[i].id);
+                    mediaSnap.current.push({
+                        snap: x,
+                        id: messages[i].id,
+                    });
+                };
             };
         };
     }, [messages, firstRender]);
@@ -587,7 +902,7 @@ function Chat({ animState, unreadMessages, b }) {
                                 type: "set_firstMessage",
                                 id: roomID,
                                 firstMessageID: "no id",
-                            }); 
+                            });
                         } else {
                             docs.forEach(doc => {
                                 //console.log("doc.exists: ", doc.exists);
@@ -598,7 +913,7 @@ function Chat({ animState, unreadMessages, b }) {
                                     id: roomID,
                                     firstMessageID: doc.id,
                                 });
-                            });       
+                            });
                         };
                     fetchMessages(false);
                     fetchMessages(true);
@@ -609,9 +924,11 @@ function Chat({ animState, unreadMessages, b }) {
 
     useEffect(() => {
         if (src !== "") {
-            const width = document.querySelector('.mediaPreview img').clientWidth;
-            const height = document.querySelector('.mediaPreview img').clientHeight;
-            setRatio(height / width);
+            setTimeout(() => {
+                const width = document.querySelector('.mediaPreview img').clientWidth;
+                const height = document.querySelector('.mediaPreview img').clientHeight;
+                setRatio(height / width);
+            }, 1000)
         }
     }, [src])
 
@@ -630,7 +947,7 @@ function Chat({ animState, unreadMessages, b }) {
             }, 50)
         } else if (animState === "exiting" && page.width <= 760 ) {
             setTimeout(() => {
-                document.querySelector(".chat").classList.remove('chat-animate');
+                document.querySelector(".chat")?.classList.remove('chat-animate');
                 setTimeout(() => {
                     document.querySelector('.sidebar').classList.add('side');
                 }, 10)
@@ -668,6 +985,7 @@ function Chat({ animState, unreadMessages, b }) {
 
     useEffect(() => {
         if (roomID && state?.userID) {
+            console.log(roomID);
             var h = db.collection("rooms").doc(roomID).onSnapshot(snap => {
                 if (snap.data()) {
                     setTyping(snap.data()[state.userID]);
@@ -744,9 +1062,12 @@ function Chat({ animState, unreadMessages, b }) {
     useEffect(() => {
         if (messages.length > 0) {
             if (chatBodyContainer.current.scrollHeight - chatBodyContainer.current.offsetHeight === 0 && messages[messages.length - 1].uid !== user.uid) {
-                db.collection("rooms").doc(roomID).set({
-                    seen: true,
-                }, { merge: true });
+                const lastMesage =  messages[messages.length - 1];
+                if((lastMesage.imageUrl === 'uploading' || lastMesage.videoUrl === 'uploading')) {
+                    db.collection("rooms").doc(roomID).set({
+                        seen: true,
+                    }, { merge: true });
+                }
             };
         };
     },[messages]);
@@ -768,10 +1089,71 @@ function Chat({ animState, unreadMessages, b }) {
         };
     }, [dispatchMessages[roomID]]);
 
-    
-    //window
+    const handleCamera = () => {
+        setOpenCameraDialog(true);
+        handleClose();
+    }
+
+    const webCapture = useRef();
+
+    const captureImage = () => {
+        webCapture.current.callCapture()
+    }
+
+    const getScreenShot = (str) => {
+        if(isBase64(str, {allowMime: true})) {
+            setSRC(str)
+            setImage({
+                isCaptureImage: true,
+                data: str,
+                name: 'capture.png'
+            })
+        }
+        handleCameraCloseDialog();
+    }
+
     const widthRatio = 0.7;
-    
+
+    let dates = [];
+
+    const StyledAvatar = ({ children, ...props }) => {
+        const { avtarCls } = avtarStyles(props);
+        return(<Avatar className={avtarCls}>
+            {children}
+        </Avatar>)
+    };
+
+    let avtarStyle;
+    if (photoURL === null && state.name !== null) {
+        avtarStyle = stringAvatar(state.name);
+    }
+
+    const linkProps = {
+        target: '_blank',
+        style: {
+            cursor: 'pointer',
+            color: '#027eb5',
+            'text-decoration': 'underline'
+        },
+        onClick: (event) => {
+            if (window.ReactNativeWebView) {
+                event.preventDefault();
+                const href = event.target.href;
+                window.ReactNativeWebView?.postMessage(href);
+            }
+        }
+    };
+
+    const validURL = (str) => {
+        var pattern = new RegExp('^(https?:\\/\\/)?'+ // protocol
+          '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|'+ // domain name
+          '((\\d{1,3}\\.){3}\\d{1,3}))'+ // OR ip (v4) address
+          '(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*'+ // port and path
+          '(\\?[;&a-z\\d%_.~+=-]*)?'+ // query string
+          '(\\#[-a-z\\d_]*)?$','i'); // fragment locator
+        return !!pattern.test(str);
+    }
+
     return (
         <>
         <div style={!roomID ? { display: "none"} : {}} ref={chatAnim} className="chat">
@@ -785,31 +1167,97 @@ function Chat({ animState, unreadMessages, b }) {
                     <IconButton onClick={() => setTimeout(() => history.goBack(), 150)}>
                         <ArrowBack />
                         <div className="avatar__container">
-                            <Avatar src={state?.photoURL} />
-                            {roomsData[roomID]?.onlineState === "online" ? <div className="online"></div> : null}  
+                        { photoURL &&
+                            <Avatar  src={`${photoURL}`} />
+                        }
+                        { photoURL === null && state.name === null &&
+                            <Avatar  />
+                        }
+                        { photoURL === null && state.name !== null &&
+                             <StyledAvatar {...avtarStyle} />
+                        }
+                            {roomsData[roomID]?.onlineState === "online" ? <div className="online"></div> : null}
                         </div>
-                        
+
                     </IconButton>
-                : 
+                :
                     <div className="avatar__container">
-                        <Avatar src={state?.photoURL} />
-                        {roomsData[roomID]?.onlineState === "online" ? <div className="online"></div> : null} 
+
+                        { photoURL &&
+                            <Avatar  src={`${photoURL}`} />
+                        }
+                        { photoURL === null && state.name === null &&
+                            <Avatar  />
+                        }
+                        { photoURL === null && state.name !== null &&
+                              <StyledAvatar {...avtarStyle} />
+                        }
+                        {roomsData[roomID]?.onlineState === "online" ? <div className="online"></div> : null}
                     </div>
                 }
                 <div className="chat__header--info">
                     <h3 style={page.width <= 760 ? {width: page.width - 165 } : {}}>{state?.name} </h3>
-                    <p style={page.width <= 760 ? {width: page.width - 165 } : {}}>{typing === "recording" ? "Recording ..." : typing ? "Typing ..." : messages?.length > 0 ? "Seen at " + messages[messages.length - 1]?.timestamp : ""} </p>
+                    <p style={page.width <= 760 ? {width: page.width - 165 } : {}}>{typing === "recording" ? "Recording ..." : typing ? "Typing ..." : messages?.length > 0 ? "Seen at " + `${messages[messages.length - 1]?.timesGroup} ${messages[messages.length - 1]?.timestamp}` : ""} </p>
                 </div>
 
                 <div className="chat__header--right">
-                    <input id="attach-media" style={{ display: "none" }} accept="image/*" type="file" onChange={handleFile} />
+
+                <Dialog
+                    fullScreen
+                    open={openCameraDialog}
+                    onClose={handleCameraCloseDialog}
+                    TransitionComponent={DialogTransition}
+                >
+                    <Box sx={{ flexGrow: 1 }}>
+                        <AppBar elevation={1} position="relative" style={{ background: '#ededed', color: '#000000' }}>
+                            <Toolbar>
+                            <IconButton
+                                className={classes.menuButton}
+                                color="inherit"
+                            >
+                                <Close onClick={handleCameraCloseDialog} />
+                            </IconButton>
+                            <Typography className={classes.title} variant="h6" noWrap>
+                                Camera
+                            </Typography>
+                                <Button style={{
+                                    background: "linear-gradient(0deg, rgba(37,97,235,1), 0%, rgba(7,122,235,1) 100%)",
+                                    color: "#ffffff"
+                                }} color="inherit" onClick={captureImage}>Capture</Button>
+                            </Toolbar>
+                        </AppBar>
+                    </Box>
+                    <div style={{
+                        margin: "0 auto"
+                    }} ><WebcamCapture getScreenShot = {getScreenShot} ref={webCapture} ></WebcamCapture></div>
+                </Dialog>
                     <IconButton>
-                        <label style={{ cursor: "pointer", height: 24 }} htmlFor="attach-media">
-                            <AddPhotoAlternate />
-                        </label>
+                            <AddPhotoAlternate onClick={handleClick} />
+                            <Menu
+                                id="basic-menu"
+                                anchorEl={anchorEl}
+                                open={open}
+                                onClose={handleClose}
+                                MenuListProps={{
+                                'aria-labelledby': 'basic-button',
+                                }}
+                            >
+                            { isDesktop &&
+                                <MenuItem onClick={handleCamera}><CameraAlt></CameraAlt>  Camera</MenuItem>
+                            }
+                                <MenuItem >
+                                <label style={{ cursor: "pointer", height: 24 }} htmlFor="attach-media">
+                                    <input id="attach-media" style={{ display: "none" }} accept="image/*,video/*" type="file" onChange={handleFile} />
+                                    <Collections></Collections> <span style={{
+                                        top: "-10px",
+                                        position: "relative"
+                                    }}>Gallery</span>
+                                </label>
+                                </MenuItem>
+                            </Menu>
                     </IconButton>
 
-                    {/* <IconButton aria-controls="menu" aria-haspopup="true" onClick={event => setOpenMenu(event.currentTarget)}>
+                    <IconButton aria-controls="menu" aria-haspopup="true" onClick={event => setOpenMenu(event.currentTarget)}>
                         <MoreVert />
                     </IconButton>
                     <Menu
@@ -819,14 +1267,14 @@ function Chat({ animState, unreadMessages, b }) {
                         onClose={() => setOpenMenu(null)}
                         keepMounted
                     >
-                        <MenuItem onClick={deleteRoom}>Delete Room</MenuItem>
-                    </Menu> */}
+                        <MenuItem onClick={deleteRoom}>Delete Chat</MenuItem>
+                    </Menu>
                 </div>
             </div>
 
             <div className="chat__body--container" ref={chatBodyContainer}>
                 <div className="chat__body" ref={chatBodyRef}>
-                    <div 
+                    <div
                         className="loader__container paginateLoader"
                         style={{
                             height: !limitReached ? 70 : 30,
@@ -835,6 +1283,13 @@ function Chat({ animState, unreadMessages, b }) {
                         {paginateLoader && !limitReached ? <CircularProgress /> : null}
                     </div>
                     {messages.map((message, i, messageArr) => {
+
+                        let timeGroup;
+                        if(!dates.includes(message.timesGroup)) {
+                            timeGroup = message.timesGroup
+                            dates.push(message.timesGroup);
+                        }
+
                         const style = message.imageUrl ? {
                             marginBottom: !messageArr[i + 1] ? 0 : message.uid !== messageArr[i + 1].uid ? 30 : 8,
                             width: clientWidth * widthRatio + 20,
@@ -843,12 +1298,23 @@ function Chat({ animState, unreadMessages, b }) {
                                 marginBottom: !messageArr[i + 1] ? 0 : message.uid !== messageArr[i + 1].uid ? 30 : 8,
                                 width: clientWidth * widthRatio + 20,
                                 maxWidth: 320,
-                            }  
+                            }
+
+                        if(page.width < 760) {
+                            style.marginTop = "10px"
+                        }
+
+                        if((message.imageUrl === 'uploading' || message.videoUrl === 'uploading') && message.uid !== user.uid) {
+                             return null
+                        }
                         return (
+                            <>
+                            { timeGroup &&
+                              <div class="divider" style={{'zIndex': 9999}}>
+                                <span>{timeGroup}</span>
+                              </div>
+                            }
                             <div style={style} ref={i === messages.length - 1 && !(seen && messages[messages.length - 1].uid === user.uid) ? lastMessageRef : null} key={message.id} className={`chat__message ${message.uid === user.uid && "chat__reciever"} ${i === messages.length - 1 ? "chat__lastMessage" : ""}`}>
-                                <span className="chat__name">
-                                    {message.name}
-                                </span>
                                 {message.imageUrl === "uploading" ?
                                     <div
                                         style={{
@@ -865,7 +1331,7 @@ function Chat({ animState, unreadMessages, b }) {
                                         </div>
                                     </div>
                                     : message.imageUrl ?
-                                        <div                                       	
+                                        <div
                                             className="image-container"
                                             style={{
                                                 width: clientWidth * widthRatio,
@@ -875,21 +1341,64 @@ function Chat({ animState, unreadMessages, b }) {
                                                         clientWidth * widthRatio < 300 ? clientWidth * widthRatio : 300,
                                             }}
                                         >
-                                            <Link  to={{
-                                            	pathname: match.url + "/image",
-                                            	state: state,
-                                            }}>
                                                 <img onClick={(e) => clickImagePreview(e, message.imageUrl, message.ratio)} src={message.imageUrl} alt="" />
-                                            </Link>
                                         </div>
-                                        : null}
+                                        : null
+                                }
+
+
+                                { message.videoUrl === "uploading" ?
+                                    <div
+                                        style={{
+                                            width: clientWidth * widthRatio,
+                                            height: message.ratio <= 1 ?
+                                                    clientWidth * widthRatio > 300 ?
+                                                        300 * message.ratio : clientWidth * widthRatio * message.ratio :
+                                                    clientWidth * widthRatio < 300 ? clientWidth * widthRatio : 300,
+                                        }}
+                                        className="image-container"
+                                    >
+                                        <div className="image__container--loader">
+                                            <CircularProgress style={{ width: page.width <= 760 ? 40 : 80, height: page.width <= 760 ? 40 : 80 }} />
+                                        </div>
+                                    </div>
+                                    : message.videoUrl ?
+                                        <div
+                                            className="image-container"
+                                            style={{
+                                                width: clientWidth * widthRatio,
+                                                height: message.ratio <= 1 ?
+                                                        clientWidth * widthRatio > 300 ?
+                                                            240 * message.ratio : clientWidth * widthRatio * message.ratio :
+                                                        clientWidth * widthRatio < 300 ? clientWidth * widthRatio : 240,
+                                            }}
+                                        >
+                                                <video width="320" onClick={(e) => clickVideoPreview(e, message.videoUrl, message.ratio)} height="240" playsinline  preload="metadata"  key={message.videoUrl} src={`${message.videoUrl}#t=0.2`} alt="" />
+                                        </div>
+                                        : null
+                                }
+
+
+
                                 {message.audioName ?
                                     <AudioPlayer sender={message.uid === user.uid} roomID={roomID} animState={animState} setAudioID={setAudioID} audioID={audioID} id={message.id} audioUrl={message.audioUrl} audioPlayed={message.audioPlayed} />
-                                : <span className="chat__message--message">{message.message}</span>}
+                                :
+                                    <span className="chat__message--message" style={{
+                                        display: 'block'
+                                    }}>
+                                        <Linkify options={{ attributes: linkProps }}>
+                                            {message.message}
+                                        </Linkify>
+                                        {/* {message.message} */}
+                                    </span>
+                                }
+
+
                                 <span className="chat__timestamp">
                                     {message.timestamp}
                                 </span>
                             </div>
+                            </>
                         )
                     })}
                     {messages.length > 0 ?
@@ -906,30 +1415,33 @@ function Chat({ animState, unreadMessages, b }) {
                     : null}
                 </div>
             </div>
-            {src !== "" ? <MediaPreview close={close} mediaPreview={mediaPreview} setSRC={setSRC} setImage={setImage} imageSRC={src} /> : null}
+            {src !== "" && <MediaPreview close={close} mediaPreview={mediaPreview} setSRC={setSRC}  src={src} docType="image"/> }
+            {videoSrc !== "" && <MediaPreview close={close} mediaPreview={mediaPreview} setSRC={videoSrc} src={videoSrc} docType="video" /> }
 
-            <ChatFooter 
-                input={input} 
-                handleFocus={handleFocus} 
-                change={change} 
-                sendMessage={sendMessage} 
+
+            <ChatFooter
+                input={input}
+                handleFocus={handleFocus}
+                change={change}
+                sendMessage={sendMessage}
                 setFocus={setFocus}
                 image={image}
+                video={video}
                 focus={focus}
                 state={state}
                 token={token}
-                roomID={roomID} 
+                roomID={roomID}
                 setAudioID={setAudioID}
             />
             <div></div>
-            				
+
             <CSSTransition
                 in={firstRender && scrollArrow && !sendAnim}
                 classNames="scroll"
                 timeout={310}
                 unmountOnExit
             >
-                <div className="scroll" onClick={() => 
+                <div className="scroll" onClick={() =>
                     anime({
                         targets: chatBodyContainer.current,
                         scrollTop: chatBodyContainer.current.scrollHeight,
@@ -950,27 +1462,17 @@ function Chat({ animState, unreadMessages, b }) {
                     <CircularProgress />
                 </div> : null
             }
+            { isOpenVideoPreview &&
+                <VideoPreview src={videoPreviewSRC} handleClose={() => setOpenVideoPreview(false)}/>
+            }
+            { isOpenImagePreview &&
+                 <ImagePreview
+                    image={imagePreviewSRC}
+                    handleClose={() => setOpenImagePreview(false)}
+                    animState={animState}
+             />
+            }
         </div>
-        <TransitionGroup component={null}>
-            <Transition
-                timeout={{
-                    appear: 310,
-                    enter: 310,
-                    exit: 410,
-                }}
-                classNames="page"
-                key={location.pathname}
-            >
-                {animState => (
-                    <Route path={match.url + "/image"} location={location}>
-                        <ImagePreview
-                            imagePreview={imagePreview}
-                            animState={animState}
-                        />
-                    </Route>
-                )}  
-            </Transition>
-        </TransitionGroup>
         </>
     )
 }

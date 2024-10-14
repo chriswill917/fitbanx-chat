@@ -9,14 +9,16 @@ function Login(props) {
 
     const history = useHistory();
     const location = useLocation();
-
+   
     const signIn = async (token) => {
        auth.signInWithCustomToken(token);
     }
 
     useEffect(async() => {
-        await signIn(props.data.token)
-    }, []);
+        if (props.data.token) {
+            await signIn(props.data.token)
+        }
+    }, [props.data.token]);
 
     return (
         <div className="login">

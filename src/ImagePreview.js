@@ -1,82 +1,89 @@
-import { useEffect, memo, useState } from "react";
-import { createPortal } from "react-dom";
-import { useHistory } from 'react-router-dom';
+import { useEffect, useState, useHistory, forwardRef } from "react";
 import { useStateValue } from './StateProvider';
-import CloseRoundedIcon from '@material-ui/icons/CloseRounded';
-import "./ImagePreview.css"
+import Dialog from '@material-ui/core/Dialog'
+import { Avatar, IconButton } from '@material-ui/core';
+import Slide  from '@material-ui/core/Slide'
+import Box from '@material-ui/core/Box';
+import { fade, makeStyles } from '@material-ui/core/styles';
+import Button from '@material-ui/core/Button';
+import AppBar from '@material-ui/core/AppBar';
+import Toolbar from '@material-ui/core/Toolbar';
+import Typography from '@material-ui/core/Typography';
+import {  Close  } from '@material-ui/icons';
 
-export default memo(function ImagePreview({ imagePreview, animState }) {
-    const history = useHistory();
-    const [loaded, setLoaded] = useState(false);
-    const [{page}] = useStateValue();
-    
-    useEffect(() => {
-        if (loaded) {
-            const ratio = page.height / page.width;
-            const el = document.querySelector('.imagePreview-container');
-            var animW, animH, a;
-            const imageRatio = imagePreview.ratio ? imagePreview.ratio : (imagePreview.imgH / imagePreview.imgW);
-            if (ratio  < imageRatio) {
-                a = true;
-                animW = (1 / imageRatio) * page.height;
-                animH = page.height;
-            } else {
-                a = false;
-                animH = imageRatio * page.width;
-                animW = page.width;
-            }
-            if (animState === "entering" || animState === "entered") {
-                setTimeout(() => {
-                    document.querySelector(".imagePreview").style.backgroundColor = "black";
-                    el.style.borderRadius = "0px"
-                    el.style.transformOrigin = a ? "0% 0%" : "0% 0%";
-                    el.style.height = imagePreview.imgH + "px";
-                    el.style.transform = a ? `translateX(${(page.width / 2) - (animW / 2)}px) translateY(0px) scale(${page.height / imagePreview.imgH})` : 
-                            `translateX(0px) translateY(${(page.height / 2) - (animH / 2)}px) scale(${page.width / imagePreview.width})`
-                    setTimeout(() => {
-                        document.querySelector('.imagePreview .MuiSvgIcon-root').classList.add("close-animate")
-                    }, 300)
-                }, 10)
-            } else if (animState === "exiting") {
-                setTimeout(() => {
-                    document.querySelector('.imagePreview .MuiSvgIcon-root').classList.remove("close-animate")
-                    setTimeout(() => {
-                        document.querySelector(".imagePreview").style.backgroundColor = "transparent"
-                    }, 200)
-                    el.style.borderRadius = "10px"
-                    el.style.height = imagePreview.height + "px";
-                    el.style.transform = `translateX(${imagePreview.left}px) translateY(${imagePreview.top}px) scale(1)`;
-                }, 10)
-            }
-        }
-    }, [animState, loaded]);
 
-    const style = {
-        transform:`translateX(${imagePreview.left}px) translateY(${imagePreview.top}px) scale(1)`,
-        width: imagePreview.width,
-        height: imagePreview.height,
-    }
+const DialogTransition = forwardRef(function Transition(props, ref) {
+    return <Slide direction="up" ref={ref} {...props} />;
+});
 
-    const imgStyle = {}
+const useStyles = makeStyles((theme) => ({
+    root: {
+      flexGrow: 1,
+    },
+    menuButton: {
+      marginRight: theme.spacing(2),
+    },
+    title: {
+      flexGrow: 1,
+      display: 'none',
+      [
+        theme.breakpoints.up('sm')]: {
+          display: 'block',
+      },
+    },
+  }));
 
-    if (page.height / page.width > imagePreview.ratio || page.height / page.width === imagePreview.ratio) {
-        imgStyle.minWidth = "100%";
-    } else {
-        imgStyle.minHeight = "100%";
-        if (imagePreview.imgW < imagePreview.width) {
-            imgStyle.minWidth = "100%";
+
+function ImagePreview({ image, handleClose }) {
+
+    const classes = useStyles();
+
+    const saveImage = (url) => {
+        if (window.ReactNativeWebView) {
+            window.ReactNativeWebView?.postMessage(url);
+        } else {
+            window.open(url);
         }
     }
-       
-    return createPortal(
-        <div className="imagePreview" onClick={() => document.querySelector('.imagePreview .MuiSvgIcon-root').classList.toggle("close-animate")}>
-            <CloseRoundedIcon onClick={() => history.goBack()} />
-            <div
-                className="imagePreview-container"
-                style={style}
-            >
-                <img style={imgStyle} onLoad={() => setLoaded(true)} src={imagePreview.src} alt="" />
-            </div>
-        </div>
-    , document.querySelector(".app"))
-})
+
+    return (
+    <>
+    <Dialog
+        fullScreen
+        open={true}
+        onClose={handleClose}
+        TransitionComponent={DialogTransition}
+    >
+        <Box sx={{ flexGrow: 1 }}>
+            <AppBar position="relative" style={{ background: '#ededed', color: '#000000' }}>
+                <Toolbar>
+                <IconButton
+                    className={classes.menuButton}
+                    color="inherit"
+                >
+                    <Close onClick={handleClose} />
+                </IconButton>
+                <Typography className={classes.title} variant="h6" noWrap>
+                    Image
+                </Typography>
+                <Button style={{
+                    background: "linear-gradient(0deg, rgba(37,97,235,1), 0%, rgba(7,122,235,1) 100%)",
+                    color: "#ffffff"
+                }} color="inherit" onClick={() => saveImage(image.src)}>Save Image</Button>
+                </Toolbar>
+            </AppBar>
+        </Box>
+        <div style={{
+            margin: "auto",
+            width: "50%",
+            height: "auto"
+        }} >{image && image.src && <img style={{
+                "width": "100%",
+                "height": "auto"
+        }}  src = {image.src}  ></img> }</div>
+    </Dialog>
+    </>
+    );
+};
+
+export default ImagePreview

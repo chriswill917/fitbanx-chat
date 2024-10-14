@@ -1,6 +1,6 @@
 .sidebar__chat--container::-webkit-scrollbar {
     display: none;
-    -ms-overflow-style: none; 
+    -ms-overflow-style: none;
     scrollbar-width: none;
 }
 
@@ -81,6 +81,10 @@ em {
     margin-left: 15px;
 }
 
+
+
+
+
 .sidebar__chat--unreadMessages {
     position: relative;
     height: 100%;
@@ -99,6 +103,27 @@ em {
     font-weight: 700;
     position: absolute;
     right: 0;
+    top: 12px;
+    transform: translateY(-50%);
+}
+
+.sidebar__chat--lastMessageDate {
+    position: relative;
+    height: 100%;
+    flex: 1;
+}
+
+.sidebar__chat--lastMessageDate > div {
+    color: rgba(0, 0, 0, 0.45);
+    width: 55px;
+    height: 21px;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    position: absolute;
+    line-height: 14px;
+    right: -11px;
+    top: -15px;
     transform: translateY(-50%);
 }
 
@@ -145,6 +170,17 @@ em {
     transform: scale(2) !important;
 }
 
+.sidebar__chat--broadcast-row {
+    padding-top: 15px;
+    padding-bottom: 15px;
+    padding-left: 20px;
+    overflow-x: scroll;
+    flex-wrap: nowrap;
+    display: flex;
+    box-sizing: border-box;
+    border-bottom: 0.5px solid grey;
+}
+
 .no-result {
     width: 100%;
     height: 80%;
@@ -153,6 +189,7 @@ em {
     align-items: center;
     justify-content: center;
     opacity: 0;
+    margin-top: 60px;
     animation: noresult-fade-in 400ms forwards;
 }
 
@@ -183,7 +220,10 @@ em {
     .sidebar__chat:hover {
         background-color: #ebebeb;
         transition: background-color 200ms;
-    } 
+    }
+    .sidebar__chat--lastMessageDate > div {
+        right: 0px;
+    }
 }
 
 @keyframes noresult-fade-in {

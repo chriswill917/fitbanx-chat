@@ -54,11 +54,15 @@
   padding: 0 !important; }
 
 .react-spinner-loader-swing div {
-  background: #ea5e01 !important;
+  background: #ff0000 !important;
 }
 
 .app .MuiCircularProgress-svg {
   transform: scale(2.5);
+}
+
+.app .MuiCircularProgress-colorPrimary {
+  color: #ff0000 !important;
 }
 
 @media (max-width: 760px) {

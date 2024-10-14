@@ -23,15 +23,19 @@ const db = firebaseApp.firestore();
 const db2 = firebaseApp.database();
 const auth = firebaseApp.auth();
 
+
+
 const createTimestamp = firebase.firestore.FieldValue.serverTimestamp;
 const createTimestamp2 = firebase.database.ServerValue.TIMESTAMP;
+const getFieldPath = firebase.firestore.FieldPath;
 const messaging = "serviceWorker" in navigator && "PushManager" in window ?  firebase.messaging() : null;
 const fieldIncrement = firebase.firestore.FieldValue.increment;
 const arrayUnion = firebase.firestore.FieldValue.arrayUnion;
 const storage = firebase.storage().ref("images");
 const audioStorage = firebase.storage().ref("audios");
+const videoStorage = firebase.storage().ref("videos");
 
 //db.disableNetwork();
 
-export { auth , createTimestamp, messaging, fieldIncrement, arrayUnion, storage, audioStorage, db2, createTimestamp2};
+export { auth , createTimestamp, messaging, getFieldPath, fieldIncrement, arrayUnion, storage, videoStorage, audioStorage, db2, createTimestamp2};
 export default db;

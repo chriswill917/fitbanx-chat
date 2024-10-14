@@ -1,23 +1,25 @@
 import { useEffect, useState, memo, useRef } from 'react';
 import SidebarChat from './SidebarChat';
 import { Avatar, IconButton } from '@material-ui/core';
-import { Message, PeopleAlt, Home, ExitToApp as LogOut, SearchOutlined, GetAppRounded, Add } from '@material-ui/icons';
+import { Message,  Chat, Home, ExitToApp as LogOut, SearchOutlined, GetAppRounded, Add, QuestionAnswer } from '@material-ui/icons';
 import db, { auth, createTimestamp } from "./firebase";
 import { useStateValue } from './StateProvider';
-import { NavLink, Route, useHistory, Switch } from 'react-router-dom';
-import algoliasearch from "algoliasearch";
+import { NavLink, Route, useLocation, useHistory, Switch } from 'react-router-dom';
 import './Sidebar.css';
 import audio from './notification.mp3'
+import announcement from './announcement.png'
 
-const index = algoliasearch("HGSCPXF5HH", "5dcbf917421397576df267019b9b4c87").initIndex('whatsappy-app');
 
-function Sidebar({ chats, pwa, rooms, fetchRooms, users, fetchUsers }) {
+function Sidebar({ chats, pwa, rooms, fetchRooms, users, searchUser, authUser, currentUserName, clientIds, fetchUsers, photos, broadcasts, userRole }) {
     const [searchList, setSearchList] = useState(null);
     const [searchInput, setSearchInput] = useState("");
+    const [fliterClientIds, setFilterClientIds] = useState([]);
     const [menu, setMenu] = useState(1);
     const [mounted, setMounted] = useState(false);
     const [{ user, page, pathID }] = useStateValue();
-    let history = useHistory();
+    const [isNewBroadcast, setIsNewBroadcast] = useState(false);
+    let history = useHistory()
+    const location = useLocation();
     const notification = new Audio(audio);
     const prevUnreadMessages = useRef((() => {
         const data = {};
@@ -35,25 +37,30 @@ function Sidebar({ chats, pwa, rooms, fetchRooms, users, fetchUsers }) {
         Nav = NavLink;
     }
 
+    useEffect(() => {
+        setIsNewBroadcast(false);
+    }, [location.pathname]);
+
     async function search(e) {
         if (e) {
             document.querySelector(".sidebar__search input").blur();
             e.preventDefault();
         }
-        if (page.width <= 760) {
+        if ( location.pathname !== '/broadcast' && page.width <= 760) {
             history.push("/search?" + searchInput);
         };
         setSearchList(null);
-        if (menu !== 4) {
+        if (menu !== 4 && menu !== 5) {
             setMenu(4)
         };
-        const result = (await index.search(searchInput)).hits.map(cur => cur.objectID !== user.uid ? {
-            ...cur,
-            id: cur.photoURL ? cur.objectID > user.uid ? cur.objectID + user.uid : user.uid + cur.objectID : cur.objectID,
-            userID: cur.photoURL ? cur.objectID : null
-        } : null);
-        //console.log(result);
-        setSearchList(result);
+        let filterClientIds = clientIds.filter((clientId) => {
+            return clientId.name.toUpperCase().includes(searchInput.toUpperCase());
+         });
+        if(searchInput === '') {
+            filterClientIds = clientIds;
+        }
+        setFilterClientIds(filterClientIds)
+        await searchUser(searchInput, filterClientIds);
     }
 
     const createChat = () => {
@@ -66,6 +73,20 @@ function Sidebar({ chats, pwa, rooms, fetchRooms, users, fetchUsers }) {
             });
         };
     };
+
+    const moveUserChat = () => {
+        setSearchInput("");
+        fetchUsers(() => null, [], false, clientIds, true);
+        setIsNewBroadcast(false);
+        setMenu(3);
+    }
+
+    const showBroadcast = () => {
+        setSearchInput("");
+        fetchUsers(() => null, [], false, clientIds, true);
+        setIsNewBroadcast(false);
+        setMenu(5);
+    }
 
     useEffect(() => {
         const data = {};
@@ -88,6 +109,10 @@ function Sidebar({ chats, pwa, rooms, fetchRooms, users, fetchUsers }) {
             }, 10);
         };
     }, [chats, mounted]);
+
+    const passParentData = (isNewBroadcast) => {
+        setIsNewBroadcast(isNewBroadcast)
+    }
 
     return (
         <div className="sidebar" style={{
@@ -121,15 +146,16 @@ function Sidebar({ chats, pwa, rooms, fetchRooms, users, fetchUsers }) {
             </div>
 
             <div className="sidebar__search">
-                <form className="sidebar__search--container">
-                    <SearchOutlined />
+                <form className="sidebar__search--container" onSubmit={search}>
+                <SearchOutlined />
                     <input
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
-                        placeholder="Search for users or rooms"
+                        placeholder="Search for users."
                         type="text"
+                        disabled={menu === 5 && !isNewBroadcast}
                     />
-                    <button style={{ display: "none" }} type="submit" onClick={search}></button>
+                    {/* <button style={{ display: "none" }} type="submit" onClick={search}></button> */}
                 </form>
             </div>
 
@@ -137,7 +163,10 @@ function Sidebar({ chats, pwa, rooms, fetchRooms, users, fetchUsers }) {
                 <Nav
                     classSelected={menu === 1 ? true : false}
                     to="/chats"
-                    click={() => setMenu(1)}
+                    click={() => {
+                        setSearchInput("");
+                        setMenu(1)
+                    }}
                     activeClassName="sidebar__menu--selected"
                 >
                     <div className="sidebar__menu--home">
@@ -145,56 +174,58 @@ function Sidebar({ chats, pwa, rooms, fetchRooms, users, fetchUsers }) {
                         <div className="sidebar__menu--line"></div>
                     </div>
                 </Nav>
-                {/* <Nav
-                    classSelected={menu === 2 ? true : false}
-                    to="/rooms"
-                    click={() => setMenu(2)}
-                    activeClassName="sidebar__menu--selected"
-                >
-                    <div className="sidebar__menu--rooms">
-                        <Message />
-                        <div className="sidebar__menu--line"></div>
-                    </div>
-                </Nav> */}
                 <Nav
                     classSelected={menu === 3 ? true : false}
                     to="/users"
-                    click={() => setMenu(3)}
+                    click={() => moveUserChat()}
                     activeClassName="sidebar__menu--selected"
                 >
                     <div className="sidebar__menu--users">
-                        <PeopleAlt />
+                        <Chat photos = {photos} />
                         <div className="sidebar__menu--line"></div>
                     </div>
                 </Nav>
+                {(userRole.includes('trainer') || userRole.includes('brand')) && <Nav
+                    classSelected={menu === 5 ? true : false}
+                    to="/broadcast"
+                    click={() => showBroadcast()}
+                    activeClassName="sidebar__menu--selected"
+                >
+                    <div className="sidebar__menu--users">
+                        <img src={announcement} style={{ width: 25, height: 25 }} alt="broadcast" />
+                        <div className="sidebar__menu--line"></div>
+                    </div>
+                </Nav>}
             </div>
 
             {page.width <= 760 ?
                 <>
                     <Switch>
                         <Route path="/users" >
-                            <SidebarChat key="users" fetchList={fetchUsers} dataList={users} title="Users" path="/users" />
-                        </Route>
-                        <Route path="/rooms" >
-                            <SidebarChat key="rooms" fetchList={fetchRooms} dataList={rooms} title="Rooms" path="/rooms" />
+                            <SidebarChat key="users" isNewBroadcast={isNewBroadcast} passParentData={passParentData} photos={photos} fetchList={fetchUsers} clientIds={clientIds} dataList={users} title="New Chat" path="/users" />
                         </Route>
                         <Route path="/search">
-                            <SidebarChat key="search" dataList={searchList} title="Search Result" path="/search" />
+                            <SidebarChat key="search" isNewBroadcast={isNewBroadcast} passParentData={passParentData} photos={photos} clientIds={fliterClientIds} fetchList={fetchUsers} dataList={users} title="Search Result" path="/search" />
                         </Route>
                         <Route path="/chats" >
-                            <SidebarChat key="chats" dataList={chats} title="Chats" path="/chats" />
+                            <SidebarChat key="chats" isNewBroadcast={isNewBroadcast} passParentData={passParentData} photos={photos} clientIds={clientIds}  dataList={chats} title="Chats" path="/chats" />
+                        </Route>
+                        <Route path="/broadcast" >
+                            <SidebarChat key="broadcast" isNewBroadcast={isNewBroadcast} passParentData={passParentData} broadcasts={broadcasts} photos={photos} fetchList={fetchUsers} clientIds={clientIds} dataList={users} title="Broadcast" path="/broadcast" />
                         </Route>
                     </Switch>
                 </>
                 :
                 menu === 1 ?
-                    <SidebarChat key="chats" dataList={chats} title="Chats" />
+                    <SidebarChat key="chats" isNewBroadcast={isNewBroadcast} passParentData={passParentData}  photos={photos} clientIds={clientIds}  dataList={chats} title="Chats" />
                     : menu === 2 ?
-                        <SidebarChat key="rooms" fetchList={fetchRooms} dataList={rooms} title="Rooms" />
+                        <SidebarChat key="rooms" isNewBroadcast={isNewBroadcast} passParentData={passParentData}  photos={photos} clientIds={clientIds}  fetchList={fetchRooms} dataList={rooms} title="Rooms" />
                         : menu === 3 ?
-                            <SidebarChat key="users" fetchList={fetchUsers} dataList={users} title="Users" />
+                            <SidebarChat key="users" isNewBroadcast={isNewBroadcast} passParentData={passParentData}  photos={photos}  clientIds={clientIds} isSearch={false} fetchList={fetchUsers} dataList={users} title="New Chat" />
                             : menu === 4 ?
-                                <SidebarChat key="search" dataList={searchList} title="Search Result" />
+                                <SidebarChat key="search" isNewBroadcast={isNewBroadcast}  passParentData={passParentData}  photos={photos} fetchList={fetchUsers} isSearch={true} clientIds={fliterClientIds} dataList={users} title="Search Result" />
+                            : menu === 5 ?
+                                <SidebarChat key="broadcast" isNewBroadcast={isNewBroadcast} passParentData={passParentData}  broadcasts={broadcasts} photos={photos} fetchList={fetchUsers} isSearch={false} clientIds={clientIds} dataList={users} title="Broadcast" />
                                 : null
             }
             {/* <div className="sidebar__chat--addRoom" onClick={createChat}>
